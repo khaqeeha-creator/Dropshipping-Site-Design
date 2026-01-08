@@ -13,14 +13,20 @@ SUPABASE_URL = os.getenv("VITE_SUPABASE_URL")
 SUPABASE_KEY = os.getenv("VITE_SUPABASE_ANON_KEY")
 
 if not SUPABASE_URL or not SUPABASE_KEY:
-    print("Error: Supabase credentials not found in web/.env")
-    exit(1)
+    print("WARNING: Supabase credentials are missing. Skipping database upload.")
+    print("To enable database upload, set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY.")
+    # We do not exit(1) so the workflow doesn't fail, but we can't upload data.
+    SUPABASE_CLIENT = None
+else:
+    SUPABASE_CLIENT = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 SOURCE_URL = "https://roposo.com/collections/trending-now"
 MARKUP = 2.5
 
 def fetch_products():
+    if not SUPABASE_CLIENT:
+        print("Skipping fetch: No Supabase client available.")
+        return
     print(f"Fetching products from {SOURCE_URL}...")
     headers = {"User-Agent": "Mozilla/5.0"}
     try:
@@ -70,18 +76,21 @@ def fetch_products():
             new_price = round(original_price * MARKUP, 2)
             
             # Upsert to Supabase
-            data = {
-                "name": name,
-                "price": new_price,
-                "image_url": image_url,
-                "source_url": source_url,
-                "description": f"Imported from {SOURCE_URL}",
-                "rating": 5,
-                "is_trending": True
-            }
-            
-            supabase.table("products").upsert(data, on_conflict="source_url").execute()
-            print(f"Upserted: {name} - ${new_price}")
+            if SUPABASE_CLIENT:
+                data = {
+                    "name": name,
+                    "price": new_price,
+                    "image_url": image_url,
+                    "source_url": source_url,
+                    "description": f"Imported from {SOURCE_URL}",
+                    "rating": 5,
+                    "is_trending": True
+                }
+                
+                SUPABASE_CLIENT.table("products").upsert(data, on_conflict="source_url").execute()
+                print(f"Upserted: {name} - ${new_price}")
+            else:
+                print(f"Would upsert: {name} - ${new_price} (Dry Run)")
             products_found += 1
             
         except Exception:
